@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<script src="/socket.io/socket.io.js"></script>
+	<script>
+		var socket;
+		var canvas, ctx;
+		var myScore, theirScore;
+		var myPoints = 0, theirPoints = 0;
+		
+		var draws = {};
+		
+		function init() {
+			socket = io.connect();
+			
+			canvas = document.querySelector('#canvas');
+			ctx = canvas.getContext('2d');
+			myScore = document.querySelector('#myScore');
+			theirScore = document.querySelector('#theirScore');
+			
+			setupSocket();
+			updateScores();		//Call once to draw starting scores
+		}
+		
+		function setupSocket() {
+			socket.on('update', function(data) {
+				if (!draws[data.key]) {
+					draws[data.key] = {key: data.key, x: data.x, y: data.y, width: 20, height: 20, color: data.color};
+				}
+				draw();
+			});
+			
+			//Tell first player to wait for second
+			socket.on('notEnough', function(data) {
+				ctx.fillStyle = "black";
+				ctx.font="48px Tahoma";
+				ctx.clearRect(0, 0, canvas.width, canvas.height);
+				ctx.fillText("Waiting on one more player...", 80, 300);
+			});
+			
+			//Tell someone to leave if there are more than 2 players
+			socket.on('tooMany', function(data) {
+				ctx.fillStyle = "black";
+				ctx.font="48px Tahoma";
+				ctx.clearRect(0, 0, canvas.width, canvas.height);
+				ctx.fillText("There are too many players!", 100, 300);
+				ctx.font="36px Tahoma";
+				ctx.fillText("Someone GTFO...", 260, 350);
+			});
+			
+			socket.on('changeScores', function(data) {
+				//Update scores and reprint
+				myPoints += data.myChange;
+				theirPoints += data.theirChange;
+				updateScores();
+				
+				//Recreate draw stack to exclude the clicked square
+				var newDraws = {};
+				var keys = Object.keys(draws);
+				for (var i = 0; i < keys.length; i++) {
+					if (keys[i] == data.key) {
+						//If the clicked square, do not copy over
+					}
+					else {
+						newDraws[keys[i]] = draws[keys[i]];
+					}
+				}
+				draws = newDraws;
+				
+				//Redraw
+				draw();
+			});
+			
+			canvas.addEventListener('click', function(event) {
+				var coords = {x: event.x, y: event.y};
+				checkSquares(coords);
+			}, false);
+		}
+		
+		function draw() {
+			ctx.clearRect(0, 0, canvas.width, canvas.height);
+			
+			var keys = Object.keys(draws);
+			for (var i = 0; i < keys.length; i++) {
+				var drawCall = draws[keys[i]];
+				ctx.fillStyle = drawCall.color;
+				ctx.fillRect(drawCall.x, drawCall.y, drawCall.width, drawCall.height);
+			}
+		}
+		
+		function checkSquares(coords) {
+			var keys = Object.keys(draws);
+			for (var i = 0; i < keys.length; i++) {
+				//Get bounds of canvas to use its offsets for mouse position checks
+				var canv = canvas.getBoundingClientRect();
+				
+				var mouseX = coords.x - canv.left;
+				var mouseY = coords.y - canv.top;
+				//Check if Mouse is within a square
+				if (mouseX >= draws[keys[i]].x && mouseX <= draws[keys[i]].x + draws[keys[i]].width &&
+					mouseY >= draws[keys[i]].y && mouseY <= draws[keys[i]].y + draws[keys[i]].height) {
+						//Send key and color of clicked square
+						var data = {key: draws[keys[i]].key, color: draws[keys[i]].color};
+						sendMessage(data);	
+					}
+			}
+		}
+		
+		function updateScores(){
+			myScore.innerHTML = "Your Score: " + myPoints;
+			theirScore.innerHTML = "Opponent's Score: " + theirPoints;
+		}
+		
+		function sendMessage(data) {
+			socket.emit('msgToServer', data);
+		}
+		
+		window.onload = init;
+	</script>
+</head>
+<body>
+	<canvas id="canvas" width="800" height="600" style="border: 1px solid #000000;">
+		Get a real browser!
+	</canvas>
+	<p id="myScore"></p>
+	<p id="theirScore"></p>
+</body>
+</html>
